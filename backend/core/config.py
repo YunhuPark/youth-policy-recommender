@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     cors_allow_headers: List[str] = Field(default=["*"], description="허용된 HTTP 헤더")
 
     # === 보안 설정 ===
-    secret_key: str = Field(default="your-secret-key-here", description="비밀 키")
+    secret_key: Optional[str] = Field(default=None, description="비밀 키")
     algorithm: str = Field(default="HS256", description="암호화 알고리즘")
     access_token_expire_minutes: int = Field(default=30, description="액세스 토큰 만료 시간 (분)")
 
@@ -199,7 +199,7 @@ class SecuritySettings(BaseSettings):
     """보안 관련 설정"""
 
     # 암호화 설정
-    secret_key: str = Field(default="dev-secret-key", env="SECRET_KEY")
+    secret_key: Optional[str] = Field(default=None, env="SECRET_KEY")
     algorithm: str = Field(default="HS256", description="JWT 알고리즘")
 
     # 토큰 설정
@@ -315,14 +315,14 @@ def validate_settings() -> bool:
         settings = get_settings()
 
         # 필수 설정 확인
-        if not settings.secret_key or settings.secret_key == "your-secret-key-here":
-            print("⚠️ SECRET_KEY가 기본값으로 설정되어 있습니다. 보안을 위해 변경하세요.")
+        if not settings.secret_key:
+            raise ValueError("SECRET_KEY 환경 변수가 설정되지 않았습니다.")
 
         if not settings.mongodb_uri:
-            print("⚠️ MONGODB_URI가 설정되지 않았습니다. 로컬 모드로 실행됩니다.")
+            raise ValueError("MONGODB_URI 환경 변수가 설정되지 않았습니다.")
 
         if not settings.openai_api_key:
-            print("⚠️ OPENAI_API_KEY가 설정되지 않았습니다. GPT 기능이 제한됩니다.")
+            raise ValueError("OPENAI_API_KEY 환경 변수가 설정되지 않았습니다.")
 
         print(f"✅ 설정 검증 완료 (환경: {settings.environment})")
         return True
