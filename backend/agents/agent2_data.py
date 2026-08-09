@@ -68,6 +68,8 @@ class Agent2:
         self.agent_version = "1.0.0"
         self.use_database = use_database
         self.api_key = api_key or os.getenv("YOUTHCENTER_API_KEY")
+        if not self.api_key:
+            print("⚠️ YOUTHCENTER_API_KEY 환경 변수가 설정되지 않았습니다.")
 
         # MongoDB 핸들러 초기화
         self.db_handler = None
