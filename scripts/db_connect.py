@@ -13,8 +13,8 @@ def connect_db():
     mongo_uri = os.getenv("MONGODB_URI")
 
     if not mongo_uri:
-        print("❌ .env 파일에서 MONGODB_URI를 찾을 수 없습니다.")
-        return None
+        import sys
+        sys.exit("❌ .env 파일에서 MONGODB_URI를 찾을 수 없습니다.")
 
     try:
         client = MongoClient(mongo_uri)
