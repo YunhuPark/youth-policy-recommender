@@ -261,7 +261,7 @@ class Agent1:
                 "profile_data": profile.model_dump(),
                 "message": f"프로필이 성공적으로 생성되었습니다. (ID: {profile_id})",
                 "agent": self.agent_name,
-                "database_saved": True
+                "database_saved": bool(db_save_result and db_save_result.get("success"))
             }
 
             return response

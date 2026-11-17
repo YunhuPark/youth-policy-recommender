@@ -1,32 +1,14 @@
-"""Test orchestrator directly"""
-import sys
-sys.path.append('.')
+"""Matching requires explicit policy data, without a database or network."""
 from agents.agent3_matching import Agent3
 
-def test_matching():
-    agent3 = Agent3()
-    
-    # 테스트 사용자 프로필
-    user_profile = {
-        "age": 26,
-        "region": "서울",
-        "status": "재학생",
-        "income": 0
-    }
-    
-    print(f"테스트 프로필: {user_profile}")
-    
-    # 매칭 실행
-    result = agent3.match_policies(user_profile)
-    
-    if result["success"]:
-        print(f"\n✅ 매칭 성공!")
-        print(f"매칭된 정책 수: {result.get('matched_count', 0)}")
-        policies = result.get("policies", [])
-        for i, p in enumerate(policies[:5]):
-            print(f"  {i+1}. {p.get('title', 'N/A')[:40]} | 점수: {p.get('match_score', 0)}")
-    else:
-        print(f"\n❌ 매칭 실패: {result.get('error')}")
 
-if __name__ == "__main__":
-    test_matching()
+def test_matching():
+    profile = {"age": 26, "region": "서울", "employment": "학생", "income": 0}
+    policies = [{"policy_id": "study", "title": "청년 학업 지원", "category": "교육",
+                 "target_age_min": 15, "target_age_max": 39, "target_regions": ["전국"],
+                 "target_employment": ["학생"], "benefit": "학비 지원", "deadline": "상시"}]
+    results = Agent3().match_policies(profile, policies, min_score=0, max_results=5)
+    assert len(results) == 1
+    assert results[0].policy_id == "study"
+    assert 0 < results[0].score <= 100
+    assert results[0].match_reasons
