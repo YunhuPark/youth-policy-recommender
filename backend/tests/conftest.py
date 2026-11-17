@@ -19,4 +19,3 @@ def no_network(monkeypatch):
     def deny(*args, **kwargs):
         raise RuntimeError("Network disabled in offline tests")
     monkeypatch.setattr(requests.sessions.Session, "request", deny)
-
