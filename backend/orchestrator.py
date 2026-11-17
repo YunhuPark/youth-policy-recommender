@@ -237,6 +237,7 @@ class AgentOrchestrator:
             total_duration = (end_time - start_time).total_seconds()
 
             final_result = {
+                "profile_id": profile_id,
                 "session_id": session_id,
                 "success": True,
                 "message": "추천 프로세스가 성공적으로 완료되었습니다.",
@@ -260,6 +261,8 @@ class AgentOrchestrator:
             print(f"📈 평균 매칭 점수: {formatted_result.avg_score}")
             print("=" * 60)
 
+            # Issue the capability to this caller only, after history storage.
+            final_result["access_token"] = profile_result["access_token"]
             return final_result
 
         except Exception as e:
@@ -351,9 +354,10 @@ class AgentOrchestrator:
                 return False
 
             history_data = {
+                "user_id": result["profile_id"],
                 "session_id": session_id,
                 "user_profile": user_profile,
-                "recommendation_result": result,
+                "recommendation_result": {key: value for key, value in result.items() if key != "access_token"},
                 "created_at": datetime.now()
             }
 

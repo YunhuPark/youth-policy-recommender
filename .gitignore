@@ -37,3 +37,4 @@ tests/*.py
 # 로그
 *.log
 logs/
+.runtime/
