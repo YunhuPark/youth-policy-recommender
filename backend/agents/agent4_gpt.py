@@ -69,7 +69,7 @@ class Agent4:
                 api_key = os.getenv("OPENAI_API_KEY")
                 if api_key:
                     # OpenAI 클라이언트 초기화 (버전 호환성을 위해 간소화)
-                    self.client = OpenAI(api_key=api_key)
+                    self.client = OpenAI(api_key=api_key, timeout=15.0, max_retries=0)
                     self.is_available = True
                     print(f"✅ Agent4: OpenAI 클라이언트 초기화 성공 (모델: {self.model})")
                 else:

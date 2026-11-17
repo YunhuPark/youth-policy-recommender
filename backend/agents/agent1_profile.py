@@ -4,6 +4,9 @@ Agent 1: 사용자 프로필 수집 및 검증 에이전트
 """
 
 import uuid
+import secrets
+import hashlib
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional, List, Union
 from pydantic import BaseModel, Field, field_validator
 from enum import Enum
@@ -212,6 +215,7 @@ class Agent1:
 
             # 3. 고유 프로필 ID 생성
             profile_id = self._generate_profile_id()
+            access_token = secrets.token_urlsafe(32)
 
             # 4. MongoDB에 저장
             db_save_result = None
@@ -227,6 +231,8 @@ class Agent1:
                     # UserProfile을 MongoDB 저장 형식으로 변환
                     profile_dict = profile.model_dump()
                     profile_dict["profile_id"] = profile_id
+                    profile_dict["access_token_hash"] = hashlib.sha256(access_token.encode()).hexdigest()
+                    profile_dict["access_token_expires_at"] = datetime.now(timezone.utc) + timedelta(days=30)
 
                     db_save_result = self.db_handler.save_user_profile(profile_dict)
                     
@@ -251,10 +257,11 @@ class Agent1:
             response = {
                 "success": True,
                 "profile_id": profile_id,
+                "access_token": access_token,
                 "profile_data": profile.model_dump(),
                 "message": f"프로필이 성공적으로 생성되었습니다. (ID: {profile_id})",
                 "agent": self.agent_name,
-                "database_saved": True
+                "database_saved": bool(db_save_result and db_save_result.get("success"))
             }
 
             return response
@@ -322,7 +329,16 @@ class Agent1:
 
     def _generate_profile_id(self) -> str:
         """고유한 프로필 ID 생성"""
-        return f"profile_{uuid.uuid4().hex[:8]}"
+        return f"profile_{uuid.uuid4().hex}"
+
+    def update_profile(self, profile_id: str, user_input: Dict[str, Any]) -> Dict[str, Any]:
+        """Update validated profile fields without changing its capability."""
+        if not self.db_handler:
+            return {"success": False, "error": "데이터베이스 연결이 없습니다."}
+        validation = self.validate_only(user_input)
+        if not validation["valid"]:
+            return {"success": False, "error": validation["error"]}
+        return self.db_handler.update_user_profile(profile_id, UserProfile(**user_input).model_dump())
 
     def _is_youth_policy_eligible(self, profile: UserProfile) -> bool:
         """
