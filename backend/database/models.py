@@ -34,6 +34,8 @@ class UserProfileDB(BaseModel):
     """
     id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
     profile_id: str = Field(..., description="Agent1에서 생성한 고유 프로필 ID")
+    access_token_hash: Optional[str] = None
+    access_token_expires_at: Optional[datetime] = None
     age: int = Field(..., ge=15, le=39, description="나이 (15-39세)")
     region: str = Field(..., description="거주 지역")
     income: int = Field(..., ge=0, description="연 소득 (만원)")

@@ -7,10 +7,14 @@ import os
 import time
 import uvicorn
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Query, Path, Request, Depends
+from fastapi import FastAPI, HTTPException, Query, Path, Request, Depends, Header
+from starlette.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+import json
+from core.profile_access import require_profile_access
+from core.ai_budget import reserve_policy_calls
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
@@ -149,6 +153,7 @@ class ProfileResponse(BaseModel):
     """프로필 생성 응답 모델"""
     success: bool
     profile_id: str
+    access_token: str
     message: str
 
     class Config:
@@ -211,11 +216,18 @@ class MatchResponse(BaseModel):
 class ExplainRequest(BaseModel):
     """정책 설명 요청 모델"""
     age: int
-    region: str
+    region: str = Field(..., max_length=30)
     income: int
-    employment: str
-    interest: Optional[str] = None
-    policies: List[Dict[str, Any]]
+    employment: str = Field(..., max_length=30)
+    interest: Optional[str] = Field(None, max_length=200)
+    policies: List[Dict[str, Any]] = Field(..., min_length=1, max_length=10)
+
+    @field_validator("policies")
+    @classmethod
+    def bounded_policy_text(cls, value):
+        if any(len(json.dumps(policy, ensure_ascii=False)) > 6000 for policy in value):
+            raise ValueError("정책 설명 입력이 너무 큽니다.")
+        return value
 
 class ExplainedPolicy(BaseModel):
     """설명이 포함된 정책 모델"""
@@ -240,14 +252,16 @@ class ExplainResponse(BaseModel):
 class OrchestratorRequest(BaseModel):
     """Orchestrator 추천 요청 모델"""
     age: int
-    region: str
+    region: str = Field(..., max_length=30)
     income: int
-    employment: str
-    interest: Optional[str] = None
+    employment: str = Field(..., max_length=30)
+    interest: Optional[str] = Field(None, max_length=200)
     min_score: Optional[float] = 40.0
-    max_results: Optional[int] = 10
+    max_results: int = Field(10, ge=1, le=10)
 
 class OrchestratorResponse(BaseModel):
+    profile_id: Optional[str] = None
+    access_token: Optional[str] = None
     """Orchestrator 추천 응답 모델"""
     session_id: str
     success: bool
@@ -392,6 +406,7 @@ async def create_profile(profile_data: ProfileRequest):
             return ProfileResponse(
                 success=True,
                 profile_id=result["profile_id"],
+                access_token=result["access_token"],
                 message=message
             )
         else:
@@ -463,10 +478,12 @@ async def get_policy_detail(policy_id: str = Path(..., description="조회할 �
 )
 async def update_profile(
     user_id: str = Path(..., description="업데이트할 사용자 ID"),
-    profile_data: ProfileRequest = ...
+    profile_data: ProfileRequest = ...,
+    authorization: Optional[str] = Header(None),
 ):
     """프로필 수정"""
     try:
+        require_profile_access(mongo_handler, user_id, authorization)
         if not mongo_handler or not mongo_handler.is_connected:
             raise HTTPException(
                 status_code=503,
@@ -505,9 +522,10 @@ async def update_profile(
         500: {"description": "서버 오류"}
     }
 )
-async def get_user_history(user_id: str = Path(..., description="조회할 사용자 ID")):
+async def get_user_history(user_id: str = Path(..., description="조회할 사용자 ID"), authorization: Optional[str] = Header(None)):
     """추천 이력 조회"""
     try:
+        require_profile_access(mongo_handler, user_id, authorization)
         if not mongo_handler or not mongo_handler.is_connected:
             raise HTTPException(
                 status_code=503,
@@ -546,6 +564,8 @@ async def get_user_history(user_id: str = Path(..., description="조회할 사�
             "message": f"{len(history)}개의 추천 이력을 찾았습니다."
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"추천 이력 조회 중 오류가 발생했습니다: {str(e)}")
 
@@ -639,9 +659,10 @@ async def get_recommendations(request: RecommendRequest):
 
 
 @app.post("/api/orchestrator", response_model=OrchestratorResponse)
-async def orchestrator_recommendation(request: OrchestratorRequest):
+async def orchestrator_recommendation(request: OrchestratorRequest, http_request: Request):
     """전체 에이전트 통합 추천 (Orchestrator)"""
     try:
+        reserve_policy_calls(request.max_results, http_request.client.host if http_request.client else "unknown")
         # Orchestrator 임포트 및 초기화
         from orchestrator import AgentOrchestrator
 
@@ -659,13 +680,15 @@ async def orchestrator_recommendation(request: OrchestratorRequest):
         }
 
         # 전체 추천 프로세스 실행
-        result = orchestrator.process_recommendation(
+        result = await run_in_threadpool(orchestrator.process_recommendation,
             user_input,
             min_score=request.min_score,
             max_results=request.max_results
         )
 
         return OrchestratorResponse(
+            profile_id=result.get("profile_id"),
+            access_token=result.get("access_token"),
             session_id=result["session_id"],
             success=result["success"],
             message=result["message"],
@@ -676,8 +699,10 @@ async def orchestrator_recommendation(request: OrchestratorRequest):
             generated_at=result["generated_at"]
         )
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"통합 추천 처리 중 오류가 발생했습니다: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=500, detail="통합 추천 처리 중 오류가 발생했습니다.")
 
 
 @app.post("/api/match", response_model=MatchResponse)
@@ -774,9 +799,24 @@ async def match_policies(request: MatchRequest):
 
 
 @app.post("/api/explain", response_model=ExplainResponse)
-async def explain_policies(request: ExplainRequest):
+async def explain_policies(request: ExplainRequest, http_request: Request):
     """정책 설명 생성 (Agent4 + GPT-4 연동)"""
     try:
+        # Use trusted policy data, never caller-provided prompt text.
+        if not mongo_handler or not mongo_handler.is_connected:
+            raise HTTPException(status_code=503, detail="정책 데이터베이스에 연결되지 않았습니다.")
+        policies = []
+        for item in request.policies:
+            policy_id = item.get("policy_id")
+            if not isinstance(policy_id, str) or not 1 <= len(policy_id) <= 100:
+                raise HTTPException(status_code=422, detail="유효한 정책 ID가 필요합니다.")
+            record = mongo_handler.get_collection("policies").find_one({"policy_id": policy_id})
+            if not record:
+                raise HTTPException(status_code=404, detail="정책을 찾을 수 없습니다.")
+            policy = {key: str(record.get(key) or "")[:2000]
+                      for key in ("policy_id", "title", "category", "benefit", "benefit_summary", "deadline")}
+            policies.append(policy)
+        reserve_policy_calls(len(policies), http_request.client.host if http_request.client else "unknown")
         # Agent4 임포트 및 초기화
         from agents.agent4_gpt import Agent4
 
@@ -792,7 +832,7 @@ async def explain_policies(request: ExplainRequest):
         }
 
         # Agent4로 설명 생성
-        explained_policies = agent4.explain_all(request.policies, user_profile)
+        explained_policies = await run_in_threadpool(agent4.explain_all, policies, user_profile)
 
         # ExplainedPolicy 형식으로 변환
         explained_results = []
@@ -822,15 +862,18 @@ async def explain_policies(request: ExplainRequest):
             policies=explained_results
         )
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"정책 설명 생성 중 오류가 발생했습니다: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=500, detail="정책 설명 생성 중 오류가 발생했습니다.")
 
 
 # 새로운 API 엔드포인트: 프로필 조회
 @app.get("/api/profile/{profile_id}")
-async def get_profile(profile_id: str):
+async def get_profile(profile_id: str, authorization: Optional[str] = Header(None)):
     """프로필 조회 (MongoDB에서)"""
     try:
+        require_profile_access(mongo_handler, profile_id, authorization)
         if not mongo_handler or not mongo_handler.is_connected:
             raise HTTPException(
                 status_code=503,
@@ -844,6 +887,8 @@ async def get_profile(profile_id: str):
         result = agent1.get_profile_from_database(profile_id)
 
         if result.get("success"):
+            public_fields = {"profile_id", "age", "region", "income", "employment", "interest", "created_at", "updated_at"}
+            result["profile"] = {key: value for key, value in result["profile"].items() if key in public_fields}
             return {
                 "success": True,
                 "profile": result["profile"],

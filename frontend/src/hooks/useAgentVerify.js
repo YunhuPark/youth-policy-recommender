@@ -1,6 +1,6 @@
 
 import { useMutation } from '@tanstack/react-query';
-import api from '../services/api';
+import api, { profileAccess } from '../services/api';
 
 // API 호출 함수
 const verifyProfileApi = async (profileData) => {
@@ -38,15 +38,13 @@ const verifyProfileApi = async (profileData) => {
     employment: employmentMap[profileData.status] || "구직자", // 매핑되지 않은 값은 기본값 '구직자'
     interest: interestMap[profileData.interest] || profileData.interest || null, // 관심사 매핑 적용
     min_score: 30.0, // 최소 점수를 30점으로 낮춰서 더 많은 정책 추천
-    max_results: 20 // 결과 수를 늘려서 다양한 정책 제시
+    max_results: 10
   };
 
-  console.log("🚀 [API 요청] 매칭 시작:", requestBody);
 
-  try {
     // 2. 실제 API 호출 (Orchestrator: AI 기반 통합 추천)
     const response = await api.post('/api/orchestrator', requestBody);
-    console.log("✅ [API 응답] 성공:", response.data);
+    profileAccess.remember(response.data);
 
     // 3. 응답 데이터 변환 (Backend -> Frontend)
     // OrchestratorResponse -> recommendation_result -> recommendations (PolicyCard list)
@@ -69,20 +67,10 @@ const verifyProfileApi = async (profileData) => {
       data: recommendations
     };
 
-  } catch (error) {
-    console.error("❌ [API 오류] 매칭 실패:", error);
-    throw error;
-  }
 };
 
 export const useAgentVerify = () => {
   return useMutation({
     mutationFn: verifyProfileApi,
-    onSuccess: (data) => {
-      console.log('검증 성공:', data);
-    },
-    onError: (error) => {
-      console.error('검증 실패:', error);
-    },
   });
 };
