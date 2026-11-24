@@ -1,5 +1,7 @@
 # 청년 정책 추천 시스템 🏛️
 
+> 원본: [Callijisu/youth-policy-recommender](https://github.com/Callijisu/youth-policy-recommender) — 팀 프로젝트로 함께 개발했습니다.
+
 Multi-Agent 협업 기반 청년 맞춤형 정책자금 추천 시스템
 
 ## 📋 프로젝트 소개
