@@ -2,9 +2,6 @@ import requests
 import csv
 import time
 import os
-import urllib3
-
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 API_KEY = "여기에_발급받은_API_키를_넣으세요"
 API_URL = "https://www.youthcenter.go.kr/go/ythip/getPlcy"
@@ -32,7 +29,7 @@ def fetch_and_save_raw_data():
                 'pageSize': page_size,
             }
 
-            response = requests.get(API_URL, params=params, verify=False, timeout=10)
+            response = requests.get(API_URL, params=params, timeout=10)
 
             if response.status_code != 200:
                 print(f"❌ 요청 실패 (Code: {response.status_code})")

@@ -3,6 +3,7 @@
 Multi-Agent 협업 기반 청년 맞춤형 정책자금 추천 시스템
 """
 
+import hmac
 import os
 import time
 import uvicorn
@@ -34,6 +35,30 @@ from scheduler import get_scheduler
 # 설정 로드
 settings = get_settings()
 api_logger = get_api_logger()
+
+
+def require_admin_refresh_token(x_admin_token: Optional[str]) -> None:
+    """수동 정책 갱신 API의 관리자 토큰 검사.
+
+    ADMIN_REFRESH_TOKEN이 설정돼 있으면 X-Admin-Token 헤더를 상수 시간 비교로 검증한다.
+    미설정 상태에서는 운영(production) 환경이면 갱신을 막고, 개발 환경이면 기존 동작을 유지한다.
+    """
+    expected = (os.getenv("ADMIN_REFRESH_TOKEN") or "").strip()
+    if not expected:
+        if settings.is_production():
+            raise HTTPException(
+                status_code=503,
+                detail="ADMIN_REFRESH_TOKEN이 설정되지 않아 수동 갱신을 사용할 수 없습니다.",
+            )
+        return
+
+    provided = (x_admin_token or "").strip()
+    if not provided or not hmac.compare_digest(provided.encode("utf-8"), expected.encode("utf-8")):
+        raise HTTPException(
+            status_code=401,
+            detail="관리자 토큰이 필요합니다.",
+            headers={"WWW-Authenticate": "X-Admin-Token"},
+        )
 
 # 애플리케이션 생명주기 관리
 @asynccontextmanager
@@ -356,11 +381,20 @@ async def get_scheduler_status():
 @app.post(
     "/api/scheduler/refresh",
     tags=["시스템 관리"],
-    summary="정책 수동 갱신",
-    description="온통청년 API에서 최신 정책 데이터를 수동으로 갱신합니다."
+    summary="정책 수동 갱신 (관리자 전용)",
+    description=(
+        "온통청년 API에서 최신 정책 데이터를 수동으로 갱신합니다. "
+        "ADMIN_REFRESH_TOKEN 환경변수가 설정된 경우 X-Admin-Token 헤더가 필요합니다."
+    ),
+    responses={
+        200: {"description": "갱신 결과"},
+        401: {"description": "관리자 토큰 누락 또는 불일치"},
+        503: {"description": "ADMIN_REFRESH_TOKEN 미설정 (운영 환경)"}
+    }
 )
-async def manual_refresh_policies():
-    """정책 데이터 수동 갱신"""
+async def manual_refresh_policies(x_admin_token: Optional[str] = Header(default=None)):
+    """정책 데이터 수동 갱신 (관리자 전용)"""
+    require_admin_refresh_token(x_admin_token)
     scheduler = get_scheduler()
     result = await scheduler.refresh_policies()
     return result
