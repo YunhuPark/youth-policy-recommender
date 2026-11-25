@@ -1,7 +1,11 @@
 version: 2
-updates:
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 1
+# 이 저장소에는 .github/workflows/ 가 없습니다(워크플로 2개는 docs/workflows/ 에 백업만 있음).
+# 그래서 github-actions 업데이트 잡이 "/action.yml 또는 /.github/workflows/<anything>.yml not found"
+# 로 매주 실패했습니다. 워크플로를 .github/workflows/ 로 올린 뒤 아래 설정을 되살리세요.
+updates: []
+# updates:
+#   - package-ecosystem: github-actions
+#     directory: /
+#     schedule:
+#       interval: weekly
+#     open-pull-requests-limit: 1
